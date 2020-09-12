@@ -1,0 +1,3 @@
+[submodule "src/MfPack"]
+	path = src/MfPack
+	url = https://github.com/FactoryXCode/MfPack.git
