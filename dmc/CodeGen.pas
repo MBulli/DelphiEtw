@@ -6,9 +6,62 @@ uses
   System.Classes,
   System.Generics.Collections,
   System.IOUtils,
+  System.Math,
   System.SysUtils,
 
   ManifestReader;
+
+
+// Value types for event metadata
+// See enum TlgIn_t in TraceLoggingProvider.h  (WinSDK 10)
+type TlgIn_t =
+(
+    TlgInNULL,
+    TlgInUNICODESTRING,
+    TlgInANSISTRING,
+    TlgInINT8,
+    TlgInUINT8,
+    TlgInINT16,
+    TlgInUINT16,
+    TlgInINT32,
+    TlgInUINT32,
+    TlgInINT64,
+    TlgInUINT64,
+    TlgInFLOAT,
+    TlgInDOUBLE,
+    TlgInBOOL32,
+    TlgInBINARY,
+    TlgInGUID,
+    _TlgInPOINTER_unsupported,
+    TlgInFILETIME,
+    TlgInSYSTEMTIME,
+    TlgInSID,
+    TlgInHEXINT32,
+    TlgInHEXINT64,
+    TlgInCOUNTEDSTRING,     // TDH_INTYPE_MANIFEST_COUNTEDSTRING
+    TlgInCOUNTEDANSISTRING, // TDH_INTYPE_MANIFEST_COUNTEDANSISTRING
+    _TlgInSTRUCT,           // TDH_INTYPE_RESERVED24
+    TlgInCOUNTEDBINARY,     // TDH_INTYPE_MANIFEST_COUNTEDBINARY
+    // New values go above this line, but _TlgInMax must not exceed 32.
+    _TlgInMax,
+
+    // These values depend on the bitness of the binary!!!
+    TlgInINTPTR   = {$IFDEF CPU64BITS}TlgInINT64   {$ELSE}TlgInINT64   {$ENDIF},
+    TlgInUINTPTR  = {$IFDEF CPU64BITS}TlgInUINT64  {$ELSE}TlgInUINT32  {$ENDIF},
+    TlgInPOINTER  = {$IFDEF CPU64BITS}TlgInHEXINT64{$ELSE}TlgInHEXINT32{$ENDIF}
+    {
+    TlgInLONG    = sizeof(LONG)  == 8 ? TlgInINT64    : TlgInINT32,
+    TlgInULONG   = sizeof(ULONG) == 8 ? TlgInUINT64   : TlgInUINT32,
+    TlgInHEXLONG = sizeof(ULONG) == 8 ? TlgInHEXINT64 : TlgInHEXINT32,
+    _TlgInCcount = 32, // Indicates that field metadata contains a const-array-count tag.
+    TlgInVcount = 64,  // Indicates that field data contains variable-array-count tag.
+    _TlgInChain = 128, // Indicates that field metadata contains a TlgOut tag.
+    _TlgInCustom = TlgInVcount | _TlgInCcount, // Indicates that the field uses a custom serializer.
+    _TlgInTypeMask = 31,
+    _TlgInCountMask = TlgInVcount | _TlgInCcount,
+    _TlgInFlagMask = _TlgInChain | TlgInVcount | _TlgInCcount
+    }
+);
 
 type TEventParameters = record
   Id      : UInt16;
@@ -26,10 +79,12 @@ type TCodeGenOptions = record
   ResourceFileName : String;
 
   UnitName         : String;
+
+  UseTraceLogging  : Boolean;
 end;
 
 type TCodeGen = class
-  const IndentLookup : array  [0..2] of string = ('', '  ', '    ');
+  const IndentLookup : array  [0..3] of string = ('', '  ', '    ', '      ');
   private
     FReader    : TManifestReader;
     FOptions   : TCodeGenOptions;
@@ -55,7 +110,7 @@ type TCodeGen = class
     procedure LogError  (const AFormat : string;
                          const Args    : array of const);
 
-
+    function MetadataTypeFromInType(const InType : String) : TlgIn_t;
 
     function ConstRequired       (const InType : String) : Boolean;
     function DelphiTypeFromInType(const InType : String) : String;
@@ -197,6 +252,39 @@ begin
   if InType = 'win:Binary'        then exit('PByte');
 
   assert(false, Format('Unkown inType="%s"', [InType]));
+end;
+
+
+function TCodeGen.MetadataTypeFromInType(const InType: String): TlgIn_t;
+begin
+  assert(InType<>'', 'Empty InType');
+
+  if InType = 'win:AnsiString'    then exit(TlgInANSISTRING);
+  if InType = 'win:UnicodeString' then exit(TlgInUNICODESTRING);
+  if InType = 'win:Int8'          then exit(TlgInINT8);
+  if InType = 'win:UInt8'         then exit(TlgInUINT8);
+  if InType = 'win:Int16'         then exit(TlgInINT16);
+  if InType = 'win:UInt16'        then exit(TlgInUINT16);
+  if InType = 'win:Int32'         then exit(TlgInINT32);
+  if InType = 'win:UInt32'        then exit(TlgInUINT32);
+  if InType = 'win:Int64'         then exit(TlgInINT64);
+  if InType = 'win:UInt64'        then exit(TlgInUINT64);
+  if InType = 'win:HexInt32'      then exit(TlgInHEXINT32);
+  if InType = 'win:HexInt64'      then exit(TlgInHEXINT64);
+  if InType = 'win:Float'         then exit(TlgInFLOAT);
+  if InType = 'win:Double'        then exit(TlgInDOUBLE);
+  if InType = 'win:Boolean'       then exit(TlgInBOOL32);
+  if InType = 'win:Pointer'       then exit(TlgInPOINTER);
+
+  // untested
+  if InType = 'win:GUID'          then exit(TlgInGUID);
+  if InType = 'win:SID'           then exit(TlgInSID);
+  if InType = 'win:FILETIME'      then exit(TlgInFILETIME);
+  if InType = 'win:SYSTEMTIME'    then exit(TlgInSYSTEMTIME);
+  if InType = 'win:Binary'        then exit(TlgInBINARY);
+
+  assert(false, Format('Unkown inType="%s"', [InType]));
+  Result := TlgInNULL;
 end;
 
 
@@ -501,6 +589,21 @@ begin
 // end;
 
   EmitLn(0, 'type T%s = class(TEventProvider)', [Provider.DelphiSymbol]);
+
+  if FOptions.UseTraceLogging then begin
+    var ProviderName       := AnsiString(Provider.FName);
+    var ProviderNameLength := Length(ProviderName);
+
+    EmitLn(1, 'private');
+    EmitLn(2, 'type TProviderNameTrait = packed record');
+    EmitLn(3,   'Len  : UInt16;');
+    EmitLn(3,   'Name : array[1..%d+1] of AnsiChar;', [ProviderNameLength]);
+    EmitLn(2, 'end;');
+    EmitLn;
+    EmitLn(2, 'const CProviderNameTrait : TProviderNameTrait = (Len:Sizeof(TProviderNameTrait); Name:''%s''+#0);', [ProviderName]);
+    EmitLn;
+  end;
+
   EmitLn(1, 'protected');
   for var event in Provider.FEvents do begin
     EmitLn(2, '%s : EVENT_DESCRIPTOR;', [event.DelphiSymbol]);
@@ -540,9 +643,11 @@ begin
   EmitLn(1, 'inherited Create(StringToGUID(''%s''));', [provider.FGUID.ToString]);
   EmitLn;
   for var event in provider.FEvents do begin
-    var p := LookupEvent(provider, event);
+    var p  := LookupEvent(provider, event);
+    var ch := IfThen(FOptions.UseTraceLogging, 11, p.Channel);  // manifest-free events are always on channel 11
+
     EmitLn(1, 'EventDescCreate(%s, %d, %d, %d, %d, %d, %d, %d);',
-             [event.DelphiSymbol, p.Id, p.Version, p.Channel, p.Level, p.Task, p.Opcode, p.Keyword]);
+             [event.DelphiSymbol, p.Id, p.Version, ch, p.Level, p.Task, p.Opcode, p.Keyword]);
   end;
   EmitLn(0, 'end;');
   EmitLn;
@@ -568,12 +673,77 @@ begin
     var emptyEvent    := (template = nil) or (template.FData.Count = 0);
     var plainStrEvent := (not emptyEvent) and template.IsPlainString;
     var templateEvent := (not emptyEvent) and (not plainStrEvent);
+    var dataCount     := 0;
+
+
+    if templateEvent then begin
+      dataCount := template.FData.Count;
+
+      if FOptions.UseTraceLogging then begin
+        dataCount := dataCount + 2; // + provider name + metadata traits
+      end;
+    end;
 
     EmitLn(0, 'function %s.EventWrite%s(%s) : boolean;', [typeName, event.DelphiSymbol, parListDef]);
     if templateEvent then begin
       EmitLn(0, 'var _stack_alignment_ : Integer; // EventData needs to be dword-aligned');
-      EmitLn(0, 'var EventData : array[0..%d] of EVENT_DATA_DESCRIPTOR;', [template.FData.Count-1]);
+      EmitLn(0, 'var EventData : array[0..%d] of EVENT_DATA_DESCRIPTOR;', [dataCount-1]);
+
+      // Generate MetaData BLOB
+      if FOptions.UseTraceLogging then begin
+        //  type TEventMeta = packed record
+        //    Len : UInt16;
+        //    Tag : Byte; // always zero
+        //    EN  : array[1..4+1] of AnsiChar;
+        //
+        //    N1  : array[1..8+1] of AnsiChar;
+        //    T1  : Byte;
+        //    N2  : array[1..7+1] of AnsiChar;
+        //    T2  : Byte;
+        //  end;
+        //
+        //  const MetaData : TEventMeta = (Len: sizeof(TEventMeta); Tag:0; N0:'Test'+#0; N1:'IntValue'+#0; T1:7; N2:'Astring'+#0; T2:2);
+
+
+        // Metadata Definition
+        EmitLn;
+        EmitLn(0, 'type TEventMeta = packed record');
+        // Header
+        EmitLn(1, 'Len : UInt16;'); // total length
+        EmitLn(1, 'Tag : Byte;'  ); // always zero
+        // Event name
+        EmitLn(1, 'EN  : array[1..%d+1] of AnsiChar;', [Length(event.FSymbol)]);
+
+        // Event fields
+        for var i := 0 to template.FData.Count-1 do begin
+          EmitLn(1, 'N%d  : array[1..%d+1] of AnsiChar;', [i, Length(template.FData[i].FName)]);
+          EmitLn(1, 'T%d  : Byte;', [i]);
+        end;
+        EmitLn(0, 'end;');
+        EmitLn;
+
+        // Metadata
+        EmitLn(0, 'const MetaData : TEventMeta = (Len: sizeof(TEventMeta); Tag:0; EN:%s+#0;', [QuotedStr(event.FSymbol)]);
+        for var i := 0 to template.FData.Count-1 do begin
+          var data := template.FData[i];
+          var dataType := MetadataTypeFromInType(data.FInType);
+          var dataTypeStr : string;
+
+          // Pointer type depends on bitness of the binary
+          if dataType = TlgInPOINTER then begin
+            dataTypeStr := Format('{$IFDEF CPU64BITS}%d{$ELSE}%d{$ENDIF}', [Ord(TlgInHEXINT64), Ord(TlgInHEXINT32)]);
+          end
+          else begin
+            dataTypeStr := Ord(dataType).ToString;
+          end;
+
+          EmitLn(1, 'N%d:%s+#0; T%d:%s;', [i, QuotedStr(data.FName), i, dataTypeStr]);
+        end;
+        EmitLn(0, ');');
+        EmitLn;
+      end;
     end;
+
     EmitLn(0, 'begin');
     if templateEvent then begin
       EmitLn(1, '_UnusedParam(_stack_alignment_);');
@@ -589,28 +759,46 @@ begin
     end
     else begin
       // templated event
-      // 1) EventDataDesc
-      for var i := 0 to template.FData.Count-1 do begin
-        var data := template.FData[i];
+      var idx := 0;
 
+      // 0) Event metadata (TraceLogging)
+      if FOptions.UseTraceLogging then begin
+        // Include provider name trait
+        EmitLn(2, 'EventDataDescCreate(EventData[0], @CProviderNameTrait, SizeOf(CProviderNameTrait));');
+        EmitLn(2, 'EventData[0].DUMMYSTRUCTNAME._Type := EVENT_DATA_DESCRIPTOR_TYPE_PROVIDER_METADATA;');
+        EmitLn;
+
+        // Include event metadata for decoding (manifest-free provider)
+        EmitLn(2, 'EventDataDescCreate(EventData[1], @MetaData, MetaData.Len);');
+        EmitLn(2, 'EventData[1].DUMMYSTRUCTNAME._Type := EVENT_DATA_DESCRIPTOR_TYPE_EVENT_METADATA;');
+        EmitLn;
+
+        idx := 2;
+      end;
+
+      // 1) EventDataDesc
+      for var data in template.FData do begin
         var pasType := Self.DelphiTypeFromInType(data.FInType);
 
         if data.FInType = 'win:UnicodeString' then begin
-          EmitLn(2, 'EventDataDescCreateStr(EventData[%d], %s);', [i, data.FName])
+          EmitLn(2, 'EventDataDescCreateStr(EventData[%d], %s);', [idx, data.FName])
         end
         else if data.FInType = 'win:SID' then begin
-          EmitLn(2, 'EventDataDescCreate   (EventData[%d], %s, GetLengthSid(%s));', [i, data.FName, data.FName]);
+          EmitLn(2, 'EventDataDescCreate   (EventData[%d], %s, GetLengthSid(%s));', [idx, data.FName, data.FName]);
         end
         else if data.FInType = 'win:Binary' then begin
-          EmitLn(2, 'EventDataDescCreate   (EventData[%d], %s, 1);', [i, data.FName]);
+          EmitLn(2, 'EventDataDescCreate   (EventData[%d], %s, 1);', [idx, data.FName]);
         end
         else begin
-          EmitLn(2, 'EventDataDescCreate   (EventData[%d], @%s, sizeof(%s));', [i, data.FName, pasType]);
+          EmitLn(2, 'EventDataDescCreate   (EventData[%d], @%s, sizeof(%s));', [idx, data.FName, pasType]);
         end;
+
+        Inc(idx);
       end;
+
       // 2) WriteEvent
       EmitLn;
-      EmitLn(2, 'WriteEvent(@%s, %d, Pointer(@EventData[0]));', [event.DelphiSymbol, template.FData.Count]);
+      EmitLn(2, 'WriteEvent(@%s, %d, Pointer(@EventData[0]));', [event.DelphiSymbol, dataCount]);
     end;
 
 

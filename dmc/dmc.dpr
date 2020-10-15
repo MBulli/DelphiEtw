@@ -20,9 +20,10 @@ uses
 
 type TCommandLine = class
   strict private
-    FInputFile    : String;
-    FOutputFile   : String;
-    FResourceFile : String;
+    FInputFile       : String;
+    FOutputFile      : String;
+    FResourceFile    : String;
+    FUseTraceLogging : Boolean;
 
   public
     [CLPPosition(1), CLPRequired, CLPDescription('Filename of the manifest xml to compile. A valid xml is assumed. If a invalid xml is provided this tool will be unstable.', '<ManifestFile>')]
@@ -34,7 +35,8 @@ type TCommandLine = class
     [CLPLongName('rc'), CLPDescription('Optional: Filename of the rc file emitted by mc.exe. The resource file needs to be included in the binary to allow event listener to read the metadata of the produced events.', '<path>')]
     property ResourceFile : String read FResourceFile write FResourceFile;
 
-
+    [CLPLongName('tracelogging'), CLPDescription('Optional: Set this to use TraceLogging API (manifest-free ETW).')]
+    property UseTraceLogging : Boolean read FUseTraceLogging write FUseTraceLogging;
 end;
 
 begin
@@ -73,6 +75,7 @@ begin
     Opt.OutputFileName   := Cl.OutputPasFile;
     Opt.UnitName         := ChangeFileExt(ExtractFileName(Cl.OutputPasFile), '');
     Opt.ResourceFileName := Cl.ResourceFile;
+    Opt.UseTraceLogging  := Cl.UseTraceLogging;
 
     codeGen := TCodeGen.Create(opt);
     codeGen.GenerateCodeFile;

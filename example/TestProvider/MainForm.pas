@@ -44,6 +44,7 @@ procedure TForm1.Button2Click(Sender: TObject);
 begin
   FProvider.EventWriteRandomTestEvent('Hallo', 42, 19);
   FProvider.EventWriteTwoIntsEvent(42, 21);
+  FProvider.EventWriteOneIntEvent(999);
 end;
 
 
